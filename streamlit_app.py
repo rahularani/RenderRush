@@ -359,6 +359,40 @@ def run_performance_comparison(video_path: str, filter_type: str, workers: int, 
         
         st.success(f"⚡ Parallel: {parallel_time:.1f}s")
         
+        # Merge processed segments into final video
+        st.info("🔄 Merging segments into final video...")
+        timestamp = int(time.time())
+        final_output_path = f"output/final_processed_{timestamp}.mp4"
+        
+        try:
+            merged_video_path = video_processor.merge_segments(processed_par, final_output_path)
+            
+            if merged_video_path and os.path.exists(merged_video_path):
+                st.success("✅ Video processing complete!")
+                
+                # Provide download button
+                with open(merged_video_path, "rb") as file:
+                    video_bytes = file.read()
+                
+                st.download_button(
+                    label="📥 Download Processed Video",
+                    data=video_bytes,
+                    file_name=f"renderrush_processed_{filter_type}_{timestamp}.mp4",
+                    mime="video/mp4",
+                    type="primary"
+                )
+                
+                # Show file info
+                file_size_mb = len(video_bytes) / (1024 * 1024)
+                st.info(f"📁 File size: {file_size_mb:.1f}MB | Filter: {filter_type} | Workers: {workers}")
+                
+            else:
+                st.warning("⚠️ Video merged but file not found. Check processing logs.")
+                
+        except Exception as merge_error:
+            st.error(f"❌ Failed to merge video segments: {merge_error}")
+            st.info("💡 Individual segments were processed successfully, but merging failed.")
+        
         # Results
         if parallel_time > 0:
             speedup = sequential_time / parallel_time
@@ -400,13 +434,149 @@ def run_performance_comparison(video_path: str, filter_type: str, workers: int, 
 
 
 def run_parallel_processing(video_path: str, filter_type: str, workers: int, segment_duration: float):
-    """Run parallel processing only"""
-    st.info("⚡ Running parallel processing mode...")
+    """Run parallel processing only with download option"""
+    st.markdown("---")
+    st.markdown("## ⚡ Parallel Processing Mode")
+    
+    video_processor = st.session_state.video_processor
+    monitor = st.session_state.performance_monitor
+    
+    try:
+        # Split video
+        st.info("🎬 Splitting video into segments...")
+        video_processor.segment_duration = segment_duration
+        segments, duration = video_processor.split_video(video_path)
+        
+        if not segments:
+            st.error("❌ Failed to create video segments")
+            return
+        
+        st.success(f"✅ Created {len(segments)} segments")
+        
+        # Parallel processing
+        st.info("⚡ Processing segments in parallel...")
+        progress_bar = st.progress(0)
+        
+        start_time = time.time()
+        
+        # Prepare tasks
+        tasks = []
+        for i, segment in enumerate(segments):
+            output_file = f"output/par_{i:03d}.mp4"
+            os.makedirs("output", exist_ok=True)
+            tasks.append((i, segment, output_file, filter_type))
+        
+        # Process in parallel
+        freeze_support()
+        with Pool(workers) as pool:
+            processed_segments = pool.map(video_processor.process_segment, tasks)
+        
+        processed_segments = [p for p in processed_segments if p is not None]
+        processing_time = time.time() - start_time
+        progress_bar.progress(1.0)
+        
+        st.success(f"⚡ Processing completed in {processing_time:.1f}s")
+        
+        # Merge segments
+        st.info("🔄 Merging segments into final video...")
+        timestamp = int(time.time())
+        final_output_path = f"output/final_parallel_{timestamp}.mp4"
+        
+        try:
+            merged_video_path = video_processor.merge_segments(processed_segments, final_output_path)
+            
+            if merged_video_path and os.path.exists(merged_video_path):
+                st.success("✅ Video processing complete!")
+                
+                # Provide download button
+                with open(merged_video_path, "rb") as file:
+                    video_bytes = file.read()
+                
+                st.download_button(
+                    label="📥 Download Processed Video",
+                    data=video_bytes,
+                    file_name=f"renderrush_parallel_{filter_type}_{timestamp}.mp4",
+                    mime="video/mp4",
+                    type="primary"
+                )
+                
+                # Show processing info
+                file_size_mb = len(video_bytes) / (1024 * 1024)
+                st.info(f"📁 File size: {file_size_mb:.1f}MB | Filter: {filter_type} | Workers: {workers} | Time: {processing_time:.1f}s")
+                
+                # Record results
+                result_data = {
+                    'parallel_time': processing_time,
+                    'workers': workers,
+                    'segments': len(segments),
+                    'filter_type': filter_type,
+                    'video_duration': duration
+                }
+                monitor.record_processing_result(result_data)
+                
+            else:
+                st.warning("⚠️ Video processed but final file not found.")
+                
+        except Exception as merge_error:
+            st.error(f"❌ Failed to merge video segments: {merge_error}")
+        
+        # Cleanup
+        video_processor.cleanup_temp_files(segments)
+        if os.path.exists(video_path):
+            os.remove(video_path)
+            
+    except Exception as e:
+        st.error(f"Processing failed: {e}")
 
 
 def run_demo_mode(video_path: str, filter_type: str, workers: int):
-    """Run demo mode for cloud deployment"""
-    st.info("🧪 Running demo mode...")
+    """Run demo mode for cloud deployment with quick processing"""
+    st.markdown("---")
+    st.markdown("## 🧪 Demo Mode - Quick Processing")
+    
+    video_processor = st.session_state.video_processor
+    
+    try:
+        st.info("🎬 Running quick demo processing...")
+        
+        # For demo, process the video directly without segmentation
+        timestamp = int(time.time())
+        output_path = f"output/demo_processed_{timestamp}.mp4"
+        os.makedirs("output", exist_ok=True)
+        
+        # Apply filter directly to the video
+        start_time = time.time()
+        result = video_processor.process_video_direct(video_path, output_path, filter_type)
+        processing_time = time.time() - start_time
+        
+        if result and os.path.exists(output_path):
+            st.success(f"✅ Demo processing completed in {processing_time:.1f}s")
+            
+            # Provide download button
+            with open(output_path, "rb") as file:
+                video_bytes = file.read()
+            
+            st.download_button(
+                label="📥 Download Demo Video",
+                data=video_bytes,
+                file_name=f"renderrush_demo_{filter_type}_{timestamp}.mp4",
+                mime="video/mp4",
+                type="primary"
+            )
+            
+            # Show info
+            file_size_mb = len(video_bytes) / (1024 * 1024)
+            st.info(f"📁 File size: {file_size_mb:.1f}MB | Filter: {filter_type} | Processing time: {processing_time:.1f}s")
+            
+        else:
+            st.error("❌ Demo processing failed")
+        
+        # Cleanup
+        if os.path.exists(video_path):
+            os.remove(video_path)
+            
+    except Exception as e:
+        st.error(f"Demo processing failed: {e}")
 
 
 if __name__ == "__main__":

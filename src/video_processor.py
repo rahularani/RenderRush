@@ -274,3 +274,45 @@ class VideoProcessor:
                     os.remove(file_path)
             except Exception as e:
                 print(f"Warning: Could not remove temp file {file_path}: {e}")
+    
+    def process_video_direct(self, input_path: str, output_path: str, filter_type: str) -> str:
+        """Process entire video directly without segmentation - for demo mode"""
+        try:
+            cap = cv2.VideoCapture(input_path)
+            if not cap.isOpened():
+                raise ValueError(f"Cannot open video file: {input_path}")
+            
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            
+            # Use mp4v codec for compatibility
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+            
+            if not out.isOpened():
+                raise ValueError(f"Cannot create output file: {output_path}")
+            
+            frame_count = 0
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                
+                # Apply filter
+                processed_frame = self.apply_filter(frame, filter_type)
+                out.write(processed_frame)
+                frame_count += 1
+            
+            cap.release()
+            out.release()
+            
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+                print(f"Successfully processed video: {frame_count} frames")
+                return output_path
+            else:
+                raise ValueError("Output file is invalid or too small")
+                
+        except Exception as e:
+            print(f"Error in direct video processing: {e}")
+            return None
